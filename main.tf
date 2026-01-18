@@ -2,7 +2,7 @@ data "azurerm_client_config" "current" {}
 
 data "archive_file" "func_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/function_code"
+  source_dir  = "${path.module}/azure_function_code"
   output_path = "${path.module}/build/functionapp.zip"
 }
 
@@ -43,6 +43,13 @@ resource "azurerm_storage_account" "sa" {
 
   tags = var.tags
 }
+
+resource "azurerm_storage_container" "dedupe" {
+  name                  = "kvrep-dedupe"
+  storage_account_id    = azurerm_storage_account.sa.id
+  container_access_type = "private"
+}
+
 
 resource "azurerm_application_insights" "ai" {
   name                = local.ai_name
@@ -109,6 +116,11 @@ resource "azurerm_linux_function_app" "func" {
     "WEBSITE_RUN_FROM_PACKAGE" = "1"
     "KEY_VAULT_URI" = azurerm_key_vault.kv.vault_uri
     "AzureWebJobsFeatureFlags" = "EnableWorkerIndexing"
+    "DEDUPE_CONTAINER" = "kvrep-dedupe"
+    AWS_REGION              = "${var.aws_region}"
+    AWS_RA_TRUST_ANCHOR_ARN = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:trust-anchor/UUID"
+    AWS_RA_PROFILE_ARN      = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:profile/UUID"
+    AWS_RA_ROLE_ARN         = "arn:aws:iam::ACCOUNT_ID:role/cross-account-demo"
   }
 
   tags = var.tags
@@ -160,15 +172,4 @@ resource "azurerm_eventgrid_system_topic_event_subscription" "kv_to_func" {
   depends_on = [
     azurerm_role_assignment.kv_secrets_user
   ]
-}
-
-resource "aws_secretsmanager_secret" "kv_replica" {
-  name = var.aws_secret_name
-  tags = var.tags
-}
-
-resource "aws_secretsmanager_secret_version" "kv_replica" {
-  count         = var.aws_secret_string == null ? 0 : 1
-  secret_id     = aws_secretsmanager_secret.kv_replica.id
-  secret_string = var.aws_secret_string
 }

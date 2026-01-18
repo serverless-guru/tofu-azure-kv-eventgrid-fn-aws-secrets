@@ -38,17 +38,3 @@ variable "aws_region" {
   description = "AWS region for Secrets Manager."
   default     = "us-east-1"
 }
-
-variable "aws_secret_name" {
-  type        = string
-  description = "Name for the AWS Secrets Manager secret."
-  default     = "kv-eventgrid-secret"
-}
-
-variable "aws_secret_string" {
-  type        = string
-  description = "Optional initial secret value for AWS Secrets Manager."
-  sensitive   = true
-  default     = null
-  nullable    = true
-}

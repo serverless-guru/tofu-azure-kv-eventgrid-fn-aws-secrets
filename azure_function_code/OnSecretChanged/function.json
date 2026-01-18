@@ -1,0 +1,7 @@
+{
+  "scriptFile": "index.js",
+  "entryPoint": "run",
+  "bindings": [
+    { "type": "eventGridTrigger", "direction": "in", "name": "eventGridEvent" }
+  ]
+}

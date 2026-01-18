@@ -25,7 +25,3 @@ output "eventgrid_system_topic_name" {
 output "eventgrid_subscription_name" {
   value = azurerm_eventgrid_system_topic_event_subscription.kv_to_func.name
 }
-
-output "aws_secret_arn" {
-  value = aws_secretsmanager_secret.kv_replica.arn
-}
