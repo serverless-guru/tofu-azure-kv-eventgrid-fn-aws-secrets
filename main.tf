@@ -111,18 +111,17 @@ resource "azurerm_linux_function_app" "func" {
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "node"
-    "AzureWebJobsStorage"      = azurerm_storage_account.sa.primary_connection_string
-    "WEBSITE_RUN_FROM_PACKAGE" = "1"
-    "KEY_VAULT_URI" = azurerm_key_vault.kv.vault_uri
-    "AzureWebJobsFeatureFlags" = "EnableWorkerIndexing"
-    "DEDUPE_CONTAINER" = "kvrep-dedupe"
-    AWS_REGION              = "${var.aws_region}"
-    AWS_RA_TRUST_ANCHOR_ARN = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:trust-anchor/UUID"
-    AWS_RA_PROFILE_ARN      = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:profile/UUID"
-    AWS_RA_ROLE_ARN         = "arn:aws:iam::ACCOUNT_ID:role/cross-account-demo"
+    FUNCTIONS_WORKER_RUNTIME = "node"
+    AzureWebJobsStorage      = azurerm_storage_account.sa.primary_connection_string
+    WEBSITE_RUN_FROM_PACKAGE = "1"
+    KEY_VAULT_URI            = azurerm_key_vault.kv.vault_uri
+    AzureWebJobsFeatureFlags = "EnableWorkerIndexing"
+    DEDUPE_CONTAINER         = "kvrep-dedupe"
+    AWS_REGION               = "${var.aws_region}"
+    AWS_RA_TRUST_ANCHOR_ARN  = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:trust-anchor/UUID"
+    AWS_RA_PROFILE_ARN       = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:profile/UUID"
+    AWS_RA_ROLE_ARN          = "arn:aws:iam::ACCOUNT_ID:role/cross-account-demo"
   }
-
   tags = var.tags
 }
 
