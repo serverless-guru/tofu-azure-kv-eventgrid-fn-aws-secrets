@@ -38,3 +38,9 @@ variable "aws_region" {
   description = "AWS region for Secrets Manager."
   default     = "us-east-1"
 }
+
+variable "aws_secrets_extension_layer_arn" {
+  type        = string
+  description = "ARN for AWS Parameters and Secrets Lambda Extension layer."
+  default     = "arn:aws:lambda:us-east-2:590474943231:layer:AWS-Parameters-and-Secrets-Lambda-Extension:28"
+}

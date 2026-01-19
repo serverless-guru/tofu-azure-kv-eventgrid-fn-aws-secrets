@@ -6,6 +6,12 @@ data "archive_file" "func_zip" {
   output_path = "${path.module}/build/functionapp.zip"
 }
 
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/aws_lambda_code"
+  output_path = "${path.module}/build/demo_lambda.zip"
+}
+
 resource "random_string" "suffix" {
   length  = 6
   upper   = false
@@ -20,6 +26,7 @@ locals {
   key_vault_name = lower("${var.name_prefix}-kv-${local.suffix}")
 
   function_app_name = lower("${var.name_prefix}-func-${local.suffix}")
+  lambda_name       = "${var.name_prefix}-demo-lambda-${local.suffix}"
   plan_name         = "${var.name_prefix}-plan-${local.suffix}"
   ai_name           = "${var.name_prefix}-ai-${local.suffix}"
   system_topic_name = "${var.name_prefix}-kvt-${local.suffix}"
@@ -171,4 +178,62 @@ resource "azurerm_eventgrid_system_topic_event_subscription" "kv_to_func" {
   depends_on = [
     azurerm_role_assignment.kv_secrets_user
   ]
+}
+
+resource "aws_iam_role" "demo_lambda" {
+  name = "${var.name_prefix}-demo-lambda-role-${local.suffix}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = { Service = "lambda.amazonaws.com" }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "demo_lambda_basic" {
+  role       = aws_iam_role.demo_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "demo_lambda_secrets" {
+  name = "${var.name_prefix}-demo-lambda-secrets-${local.suffix}"
+  role = aws_iam_role.demo_lambda.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "demo" {
+  function_name = local.lambda_name
+  role          = aws_iam_role.demo_lambda.arn
+  handler       = "index.handler"
+  runtime       = "nodejs24.x"
+
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  layers = [var.aws_secrets_extension_layer_arn]
+
+  environment {
+    variables = {
+      SECRET_NAME = "demo-secret"
+    }
+  }
+
+  tags = var.tags
 }
