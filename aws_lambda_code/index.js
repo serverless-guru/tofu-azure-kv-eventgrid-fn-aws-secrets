@@ -37,12 +37,12 @@ exports.handler = async (event) => {
       } catch {
         payload = {};
       }
-      if (payload?.refreshNow === false) {
-        await fetchSecret({ refreshNow: false });
-        console.log(`Refreshed cache for ${secretName}`);
-      } else {
+      if (payload?.refreshNow === true) {
         await fetchSecret({ refreshNow: true });
         console.log(`Forced refresh for ${secretName}`);
+      } else {
+        await fetchSecret();
+        console.log(`Refreshed cache for ${secretName}`);
       }
     }
 

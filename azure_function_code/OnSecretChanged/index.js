@@ -241,7 +241,7 @@ async function notifyRefresh(secretName, version, context) {
 
   const sqs = await getSqsClient(context);
   const message = {
-    refreshNow: false,
+    refreshNow: true,
     secretName,
     version,
   };

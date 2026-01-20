@@ -141,7 +141,6 @@ resource "azurerm_linux_function_app" "func" {
     AWS_RA_TRUST_ANCHOR_ARN  = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:trust-anchor/UUID"
     AWS_RA_PROFILE_ARN       = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:profile/UUID"
     AWS_RA_ROLE_ARN          = "arn:aws:iam::ACCOUNT_ID:role/cross-account-demo"
-
   }
   tags = var.tags
 }
