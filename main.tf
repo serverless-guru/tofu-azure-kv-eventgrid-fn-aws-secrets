@@ -12,6 +12,18 @@ data "archive_file" "lambda_zip" {
   output_path = "${path.module}/build/demo_lambda.zip"
 }
 
+data "archive_file" "app_lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/aws_lambda_code"
+  output_path = "${path.module}/build/function.zip"
+}
+
+data "archive_file" "sma_layer_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/layers/secrets-manager-agent"
+  output_path = "${path.module}/build/secrets-manager-agent-layer.zip"
+}
+
 resource "random_string" "suffix" {
   length  = 6
   upper   = false
@@ -218,16 +230,22 @@ resource "aws_iam_role_policy" "demo_lambda_secrets" {
   })
 }
 
+
 resource "aws_lambda_function" "demo" {
   function_name = local.lambda_name
   role          = aws_iam_role.demo_lambda.arn
   handler       = "index.handler"
   runtime       = "nodejs24.x"
+  timeout       = 10
+
+  architectures = ["arm64"]
 
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
-  layers = [var.aws_secrets_extension_layer_arn]
+  layers = [
+    aws_lambda_layer_version.secrets_manager_agent.arn,
+  ]
 
   environment {
     variables = {
@@ -236,4 +254,51 @@ resource "aws_lambda_function" "demo" {
   }
 
   tags = var.tags
+}
+
+data "aws_iam_policy_document" "lambda_exec_assume" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "lambda_exec" {
+  name               = "${var.name_prefix}-lambda-exec-${local.suffix}"
+  assume_role_policy = data.aws_iam_policy_document.lambda_exec_assume.json
+  tags               = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_exec_basic" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+data "aws_iam_policy_document" "lambda_secrets" {
+  statement {
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_secrets" {
+  name   = "lambda-secrets-access"
+  role   = aws_iam_role.lambda_exec.id
+  policy = data.aws_iam_policy_document.lambda_secrets.json
+}
+
+resource "aws_lambda_layer_version" "secrets_manager_agent" {
+  layer_name               = "secrets-manager-agent-extension"
+  filename                 = data.archive_file.sma_layer_zip.output_path
+  source_code_hash         = data.archive_file.sma_layer_zip.output_base64sha256
+
+  compatible_runtimes      = ["nodejs24.x"]
+  compatible_architectures = ["arm64"]
 }
