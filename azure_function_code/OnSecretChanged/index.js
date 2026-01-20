@@ -7,6 +7,7 @@ import {
   CreateSecretCommand,
   PutSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 
 import { copyFile, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,6 +25,7 @@ const AWS_REGION = process.env.AWS_REGION || "us-east-1";
 const AWS_RA_TRUST_ANCHOR_ARN = process.env.AWS_RA_TRUST_ANCHOR_ARN;
 const AWS_RA_PROFILE_ARN = process.env.AWS_RA_PROFILE_ARN;
 const AWS_RA_ROLE_ARN = process.env.AWS_RA_ROLE_ARN;
+const AWS_SQS_QUEUE_URL = process.env.AWS_SQS_QUEUE_URL;
 
 const AWS_SECRET_PREFIX = process.env.AWS_SECRET_PREFIX || "";
 const SIGNING_HELPER_PATH =
@@ -42,6 +44,10 @@ const container = blobService.getContainerClient(CONTAINER);
 
 let smClient;
 let smClientExpiresAt = 0;
+let sqsClient;
+let sqsClientExpiresAt = 0;
+let awsCredentials;
+let awsCredentialsExpiresAt = 0;
 
 function normalizeSubjectToName(subject) {
   if (!subject) return undefined;
@@ -81,11 +87,11 @@ async function tryMarkOnce(secretName, version, context) {
   }
 }
 
-async function getSecretsManagerClient(context) {
+async function getAwsCredentials(context) {
   const now = Date.now();
-  if (smClient && now < smClientExpiresAt - 60_000) {
-    context?.log("getSecretsManagerClient: using cached client");
-    return smClient;
+  if (awsCredentials && now < awsCredentialsExpiresAt - 60_000) {
+    context?.log("getAwsCredentials: using cached credentials");
+    return awsCredentials;
   }
 
   if (!AWS_RA_TRUST_ANCHOR_ARN || !AWS_RA_PROFILE_ARN || !AWS_RA_ROLE_ARN) {
@@ -157,18 +163,41 @@ async function getSecretsManagerClient(context) {
   }
 
   const expiration = parsed.Expiration ? new Date(parsed.Expiration) : undefined;
-  smClientExpiresAt = expiration ? expiration.getTime() : now + 30 * 60_000;
+  awsCredentialsExpiresAt = expiration ? expiration.getTime() : now + 30 * 60_000;
 
-  const credentials = {
+  awsCredentials = {
     accessKeyId: parsed.AccessKeyId,
     secretAccessKey: parsed.SecretAccessKey,
     sessionToken: parsed.SessionToken,
     expiration,
   };
 
+  return awsCredentials;
+}
+
+async function getSecretsManagerClient(context) {
+  const now = Date.now();
+  if (smClient && now < smClientExpiresAt - 60_000) {
+    context?.log("getSecretsManagerClient: using cached client");
+    return smClient;
+  }
+
+  const credentials = await getAwsCredentials(context);
+  smClientExpiresAt = awsCredentialsExpiresAt;
+
   context?.log("getSecretsManagerClient: create SecretsManagerClient");
   smClient = new SecretsManagerClient({ region: AWS_REGION, credentials });
   return smClient;
+}
+
+async function getSqsClient(context) {
+  const now = Date.now();
+  if (sqsClient && now < sqsClientExpiresAt - 60_000) return sqsClient;
+
+  const credentials = await getAwsCredentials(context);
+  sqsClientExpiresAt = awsCredentialsExpiresAt;
+  sqsClient = new SQSClient({ region: AWS_REGION, credentials });
+  return sqsClient;
 }
 
 function mapSecretNameToAws(secretName) {
@@ -193,7 +222,7 @@ async function upsertSecretAws(secretName, secretValue, context) {
     try {
       context?.log(`upsertSecretAws: create ${awsName}`);
       await sm.send(new CreateSecretCommand({ Name: awsName, SecretString: secretValue }));
-      return;
+      return { action: "created" };
     } catch (e) {
       if (e?.name !== "ResourceExistsException") throw e;
     }
@@ -201,6 +230,29 @@ async function upsertSecretAws(secretName, secretValue, context) {
 
   context?.log(`upsertSecretAws: put value for ${awsName}`);
   await sm.send(new PutSecretValueCommand({ SecretId: awsName, SecretString: secretValue }));
+  return { action: "updated" };
+}
+
+async function notifyRefresh(secretName, version, context) {
+  if (!AWS_SQS_QUEUE_URL) {
+    context?.log("notifyRefresh: AWS_SQS_QUEUE_URL not set, skipping");
+    return;
+  }
+
+  const sqs = await getSqsClient(context);
+  const message = {
+    refreshNow: false,
+    secretName,
+    version,
+  };
+
+  context?.log(`notifyRefresh: send message to SQS ${AWS_SQS_QUEUE_URL}`);
+  await sqs.send(
+    new SendMessageCommand({
+      QueueUrl: AWS_SQS_QUEUE_URL,
+      MessageBody: JSON.stringify(message),
+    })
+  );
 }
 
 export async function run(context, eventGridEvent) {
@@ -240,6 +292,7 @@ export async function run(context, eventGridEvent) {
     if (secretValue == null) return;
 
     await upsertSecretAws(secretName, secretValue, context);
+    await notifyRefresh(secretName, version, context);
 
     context.log(`Replicated ${secretName}@${version} to AWS (${AWS_REGION})`);
   } catch (e) {

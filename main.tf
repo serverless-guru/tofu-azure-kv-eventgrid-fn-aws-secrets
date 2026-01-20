@@ -137,9 +137,11 @@ resource "azurerm_linux_function_app" "func" {
     AzureWebJobsFeatureFlags = "EnableWorkerIndexing"
     DEDUPE_CONTAINER         = "kvrep-dedupe"
     AWS_REGION               = "${var.aws_region}"
+    AWS_SQS_QUEUE_URL        = aws_sqs_queue.secret_refresh.url
     AWS_RA_TRUST_ANCHOR_ARN  = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:trust-anchor/UUID"
     AWS_RA_PROFILE_ARN       = "arn:aws:rolesanywhere:${var.aws_region}:ACCOUNT_ID:profile/UUID"
     AWS_RA_ROLE_ARN          = "arn:aws:iam::ACCOUNT_ID:role/cross-account-demo"
+
   }
   tags = var.tags
 }
@@ -230,6 +232,27 @@ resource "aws_iam_role_policy" "demo_lambda_secrets" {
   })
 }
 
+resource "aws_iam_role_policy" "demo_lambda_sqs" {
+  name = "${var.name_prefix}-demo-lambda-sqs-${local.suffix}"
+  role = aws_iam_role.demo_lambda.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility",
+          "sqs:GetQueueUrl"
+        ]
+        Resource = aws_sqs_queue.secret_refresh.arn
+      }
+    ]
+  })
+}
+
 
 resource "aws_lambda_function" "demo" {
   function_name = local.lambda_name
@@ -254,6 +277,20 @@ resource "aws_lambda_function" "demo" {
   }
 
   tags = var.tags
+}
+
+resource "aws_sqs_queue" "secret_refresh" {
+  name                        = "${var.name_prefix}-secret-refresh-${local.suffix}.fifo"
+  fifo_queue                  = true
+  content_based_deduplication = true
+  tags = var.tags
+}
+
+resource "aws_lambda_event_source_mapping" "demo_sqs" {
+  event_source_arn = aws_sqs_queue.secret_refresh.arn
+  function_name    = aws_lambda_function.demo.arn
+  batch_size       = 10
+  enabled          = true
 }
 
 data "aws_iam_policy_document" "lambda_exec_assume" {

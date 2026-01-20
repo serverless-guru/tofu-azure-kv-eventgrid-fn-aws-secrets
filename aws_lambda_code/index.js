@@ -26,7 +26,29 @@ async function fetchSecret({ refreshNow = false } = {}) {
 }
 
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  const records = Array.isArray(event?.Records) ? event.Records : [];
+  if (records.length) {
+    for (const record of records) {
+      if (record?.eventSource !== "aws:sqs") continue;
+      let payload;
+      try {
+        payload = JSON.parse(record.body || "{}");
+      } catch {
+        payload = {};
+      }
+      if (payload?.refreshNow === false) {
+        await fetchSecret({ refreshNow: false });
+        console.log(`Refreshed cache for ${secretName}`);
+      } else {
+        await fetchSecret({ refreshNow: true });
+        console.log(`Forced refresh for ${secretName}`);
+      }
+    }
+
+    return { statusCode: 202 };
+  }
+
   const secret = await fetchSecret();
   const value = secret.SecretString || "<binary>";
   console.log(`Fetched secret ${secretName}`);
